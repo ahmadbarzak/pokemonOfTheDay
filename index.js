@@ -15,25 +15,31 @@ let gifLastGenerated = null;
 
 
 let cachedPokemonImageUrl = null;
+let cachedName = null;
 let lastFetchDate = null;
 const PORT = process.env.PORT || 3000;
 
 const fetchPokemonImageUrl = async () => {
   const today = new Date().toDateString();
+
   if (lastFetchDate === today && cachedPokemonImageUrl) {
-    return cachedPokemonImageUrl; // Use the cached URL if it's still valid
+    return { "imgUrl": cachedPokemonImageUrl, "name": cachedName }; // Use the cached URL if it's still valid
   }
 
   // Fetch a new random Pokémon image URL
   const randomPokemonId = Math.floor(Math.random() * 898) + 1;
   const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${randomPokemonId}`);
   const imageUrl = response.data.sprites.other['official-artwork'].front_default;
+  const name = response.data.name;
+
 
   // Update the cache
   cachedPokemonImageUrl = imageUrl;
+  cachedName = name;
+
   lastFetchDate = today;
 
-  return imageUrl;
+  return { "imgUrl": imageUrl, "name": name };
 };
 
 
@@ -42,19 +48,15 @@ const fetchPokemonImageUrl = async () => {
 async function createPokemonGif() {
 
   const today = new Date().toDateString();
-
-  console.log(gifLastGenerated)
-
-  console.log(today)
   
   if (gifLastGenerated === today && fs.existsSync(cachedGifPath)) {
-    console.log('cached')
-    return cachedGifPath; // Use the cached URL if it's still valid
+    return cachedGifPath;
   }
 
 
-  const imageUrl = await fetchPokemonImageUrl();
-  const pokemonImage = await loadImage(imageUrl);
+  const pokemonData = await fetchPokemonImageUrl();
+
+  const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
   const reader = new GifReader(gifData);
 
@@ -69,8 +71,6 @@ async function createPokemonGif() {
   let imageData = null
 
   for (let i = 0; i < 47; i++) {
-    console.log(i)
-    // const frameInfo = reader.frameInfo(i);
     imageData = ctx.createImageData(reader.width, reader.height);
     reader.decodeAndBlitFrameRGBA(i, imageData.data);
     ctx.putImageData(imageData, 0, 0);
@@ -101,10 +101,34 @@ async function createPokemonGif() {
   const buffer = encoder.out.getData();
   fs.writeFileSync('./public/pokemonGif.gif', buffer);
   gifLastGenerated = today;
-  return cachedGifPath;
+
+  return './public/pokemonGif.gif';
 }
 
 app.get('/', async (req, res) => {
+  try {
+    const pokemonData = await fetchPokemonImageUrl();
+    res.send(`
+      <h1>Random Pokémon</h1>
+      <img src="${pokemonData.imgUrl}" alt="${pokemonData.name}" />
+      <p>${pokemonData.name}</p>
+      <a href="/gif">View GIF</a>
+    `);
+  } catch (error) {
+    res.status(500).send('Failed to fetch Pokémon');
+  }
+});
+
+app.get('/name', async (req, res) => {
+  try {
+    const pokemonData = await fetchPokemonImageUrl();
+    res.send(`${pokemonData.name}`);
+  } catch (error) {
+    res.status(500).send('Failed to fetch Pokémon');
+  }
+});
+
+app.get('/gif', async (req, res) => {
   try {
   const gifPath = await createPokemonGif();
   res.sendFile(path.join(__dirname, gifPath));
