@@ -122,7 +122,8 @@ app.get('/', async (req, res) => {
 app.get('/name', async (req, res) => {
   try {
     const pokemonData = await fetchPokemonImageUrl();
-    res.send(`${pokemonData.name}`);
+    // res.send(`${pokemonData.name}`);
+    res.json({ schemaVersion: 1, label: 'pokemon', message: pokemonData.name, color: 'blue' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
   }
