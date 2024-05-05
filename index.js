@@ -139,6 +139,15 @@ app.get('/gif', async (req, res) => {
   }
 });
 
+app.get('/pokemonRedirect', async (req, res) => {
+  try {
+    const pokemonData = await fetchPokemonImageUrl();
+    res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${pokemonData.name}`);
+  } catch (error) {
+    res.status(500).send('Failed to fetch Pokémon');
+  }
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
