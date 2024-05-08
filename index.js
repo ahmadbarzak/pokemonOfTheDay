@@ -9,25 +9,18 @@ const path = require('path');
 const geoip = require('geoip-lite')
 const cron = require('node-cron');
 
+
 app.enable('trust proxy');
-
-const timezones = ['UTC', 'Pacific/Auckland', 'Asia/Tokyo', 'America/New_York', 'Europe/London'];
-
-timezones.forEach(tz => {
-    console.log(`Scheduling GIF generation for timezone ${tz}`)
-    cron.schedule('0 0 * * *', () => createPokemonGif(tz, true), {
-        scheduled: true,
-        timezone: tz
-    });
-});
 
 
 let pokemonImageUrls = {};
-let lastGenerated = null;
 const PORT = process.env.PORT || 3000;
+const timezones = ['UTC'];
+
 
 const getTimeZone = (req) => {
   const ip = req.ip;
+  console.log("ip is " + ip)
   const geo = geoip.lookup(ip);
   let timezone = geo && geo.timezone ? geo.timezone : 'UTC';
   if (!timezones.includes(timezone)) {
@@ -38,11 +31,12 @@ const getTimeZone = (req) => {
 }
 
 
-
 const fetchPokemonImageUrl = async (timeZone, force = false) => {
-  const today = new Date(new Date().toLocaleString('en-US', { timeZone: timezone })).toDateString();
 
-  if (!force && (lastGenerated === today && pokemonImageUrls[timeZone])) {
+  console.log(timeZone)
+
+  if (!force && pokemonImageUrls[timeZone]) {
+    console.log("EARLY EXIT")
     return { "imgUrl": pokemonImageUrls[timeZone].imgUrl, "name": pokemonImageUrls[timeZone].name };
   }
 
@@ -53,22 +47,28 @@ const fetchPokemonImageUrl = async (timeZone, force = false) => {
 
   pokemonImageUrls[timeZone] = { "imgUrl": imageUrl, "name": name };
 
-  lastGenerated = today;
+  console.log("fetched pokemon is " + pokemonImageUrls[timeZone].name)
 
-  return { "imgUrl": imageUrl, "name": name };
+  console.log("FETCH DONE")
 };
 
 
 async function createPokemonGif(timezone, force = false) {
+  console.log("GIF START")
   const tzPathParam = timezone.replace('/', '_');
   const gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
-  const today = new Date(new Date().toLocaleString('en-US', { timeZone: timezone })).toDateString();
 
-  if (!force && (lastGenerated === today && fs.existsSync(gifPath))) {
+  if (!force && fs.existsSync(gifPath)) {
     return
   }
 
-  const pokemonData = await fetchPokemonImageUrl(timezone, force);
+  const pokemonData = pokemonImageUrls[timezone];
+
+  console.log(timezone)
+
+  console.log("pokemon url name is " + pokemonImageUrls[timezone].name)
+  console.log("gif called before")
+  console.log("gif called after")
 
   const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
@@ -114,13 +114,41 @@ async function createPokemonGif(timezone, force = false) {
   encoder.finish();
   const buffer = encoder.out.getData();
   fs.writeFileSync(gifPath, buffer);
-  lastGenerated = today;
 }
+
+
+const initialSetup = async () => {
+  console.log("initialSetup called before")
+  await Promise.all(timezones.map(tz =>
+    fetchPokemonImageUrl(tz, true)
+  ));
+  await Promise.all(timezones.map(tz =>
+    createPokemonGif(tz, true)
+  ));
+  console.log("initialSetup called after")
+}
+
+initialSetup();
+
+
+// const timezones = ['UTC', 'Pacific/Auckland', 'Asia/Tokyo', 'America/New_York', 'Europe/London'];
+
+timezones.forEach(tz => {
+    console.log(`Scheduling GIF generation for timezone ${tz}`)
+    cron.schedule('0 0 * * *', () => {
+      fetchPokemonImageUrl(tz, true)
+      createPokemonGif(tz, true)
+    }, {
+        scheduled: true,
+        timezone: tz
+    });
+});
+
 
 app.get('/', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-    const pokemonData = await fetchPokemonImageUrl(timezone);
+    const pokemonData = pokemonImageUrls[timezone];
     res.send(`
       <h1>Random Pokémon</h1>
       <img src="${pokemonData.imgUrl}" alt="${pokemonData.name}" />
@@ -135,7 +163,13 @@ app.get('/', async (req, res) => {
 app.get('/name', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-    const pokemonData = await fetchPokemonImageUrl(timezone);
+
+    const pokemonData = pokemonImageUrls[timezone];
+
+    console.log(pokemonData.name)
+    const jsondata = { schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' };
+
+    console.log(jsondata)
     res.json({ schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
@@ -161,7 +195,9 @@ app.get('/gif', async (req, res) => {
 app.get('/pokemonRedirect', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-    const pokemonData = await fetchPokemonImageUrl(timezone);
+    console.log(timezone)
+    const pokemonData = pokemonImageUrls[timezone];
+    // const pokemonData = await fetchPokemonImageUrl(timezone);
     res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${pokemonData.name}`);
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
