@@ -6,37 +6,16 @@ const { createCanvas, loadImage } = require('canvas');
 const GIFEncoder = require('gifencoder');
 const fs = require('fs');
 const path = require('path');
-const geoip = require('geoip-lite')
 const cron = require('node-cron');
 
 
-app.enable('trust proxy');
-
-
-let pokemonImageUrls = {};
+let pokemonImageUrl = {};
 const PORT = process.env.PORT || 3000;
-const timezones = ['UTC'];
 
+const fetchPokemonImageUrl = async (force = false) => {
 
-const getTimeZone = (req) => {
-  const ip = req.ip;
-  console.log("ip is " + ip)
-  const geo = geoip.lookup(ip);
-  let timezone = geo && geo.timezone ? geo.timezone : 'UTC';
-  if (!timezones.includes(timezone)) {
-    console.log(`Timezone ${timezone} not supported. Falling back to default.`);
-    timezone = 'UTC';
-  }
-  return timezone;
-}
-
-
-const fetchPokemonImageUrl = async (timeZone, force = false) => {
-
-  console.log(timeZone)
-
-  if (!force && pokemonImageUrls[timeZone]) {
-    return { "imgUrl": pokemonImageUrls[timeZone].imgUrl, "name": pokemonImageUrls[timeZone].name };
+  if (!force && pokemonImageUrl) {
+    return { "imgUrl": pokemonImageUrl.imgUrl, "name": pokemonImageUrl.name };
   }
 
   const randomPokemonId = Math.floor(Math.random() * 898) + 1;
@@ -44,22 +23,19 @@ const fetchPokemonImageUrl = async (timeZone, force = false) => {
   const imageUrl = response.data.sprites.other['official-artwork'].front_default;
   const name = response.data.name;
 
-  pokemonImageUrls[timeZone] = { "imgUrl": imageUrl, "name": name };
+  pokemonImageUrl = { "imgUrl": imageUrl, "name": name };
 };
 
 
-async function createPokemonGif(timezone, force = false) {
-  const tzPathParam = timezone.replace('/', '_');
-  const gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
+async function createPokemonGif(force = false) {
+  const gifPath = `./public/pokemonGif.gif`;
 
   if (!force && fs.existsSync(gifPath)) {
     console.log("EARLY EXIT")
     return
   }
 
-  const pokemonData = pokemonImageUrls[timezone];
-
-  console.log(timezone)
+  const pokemonData = pokemonImageUrl;
 
   const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
@@ -110,40 +86,31 @@ async function createPokemonGif(timezone, force = false) {
 
 const initialSetup = async () => {
   console.log("initialSetup called before")
-  await Promise.all(timezones.map(tz =>
-    fetchPokemonImageUrl(tz, true)
-  ));
-  console.log(pokemonImageUrls['UTC'].name)
-  await Promise.all(timezones.map(tz =>
-    createPokemonGif(tz, true)
-  ));
-  console.log(pokemonImageUrls['UTC'].name)
+  await fetchPokemonImageUrl(true);
+  await createPokemonGif(true);
   console.log("initialSetup finished")
 }
 
 initialSetup();
 
-
-// const timezones = ['UTC', 'Pacific/Auckland', 'Asia/Tokyo', 'America/New_York', 'Europe/London'];
-
-timezones.forEach(tz => {
-    console.log(`Scheduling GIF generation for timezone ${tz}`)
-    cron.schedule('0 0 * * *', () => {
-      fetchPokemonImageUrl(tz, true)
-      createPokemonGif(tz, true)
-    }, {
-        scheduled: true,
-        timezone: tz
-    });
+console.log('Scheduling GIF generation for Pacific/Auckland')
+cron.schedule('0 0 * * *', () => {
+  fetchPokemonImageUrl(true)
+  createPokemonGif(true)
+}, {
+    scheduled: true,
+    timezone: 'Pacific/Auckland'
 });
 
 
 app.get('/', async (req, res) => {
   try {
-    const timezone = getTimeZone(req);
-    const name = pokemonImageUrls[timezone].name;
-    const url = pokemonImageUrls[timezone].imgUrl;
+    const name = pokemonImageUrl.name;
+    const url = pokemonImageUrl.imgUrl;
     console.log("GRABBING NAME: " + name)
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.send(`
       <h1>Random Pokémon</h1>
       <img src="${url}" alt="${name}" />
@@ -157,8 +124,7 @@ app.get('/', async (req, res) => {
 
 app.get('/name', async (req, res) => {
   try {
-    const timezone = getTimeZone(req);
-    const name = pokemonImageUrls[timezone].name;
+    const name = pokemonImageUrl.name;
     console.log("GRABBING NAME: " + name)
 
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -172,13 +138,13 @@ app.get('/name', async (req, res) => {
 
 app.get('/gif', async (req, res) => {
   try {
-
-  const timezone = getTimeZone(req);
-  const tzPathParam = timezone.replace('/', '_');
-  let gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
+  let gifPath = `./public/pokemonGif.gif`;
   if (!fs.existsSync(gifPath)) {
-    await createPokemonGif(timezone);
+    await createPokemonGif();
   }
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, gifPath));
   } catch (error) {
     console.log(error);
@@ -188,9 +154,11 @@ app.get('/gif', async (req, res) => {
 
 app.get('/pokemonRedirect', async (req, res) => {
   try {
-    const timezone = getTimeZone(req);
-    const name = pokemonImageUrls[timezone].name;
+    const name = pokemonImageUrl.name;
     console.log("GRABBING NAME: " + name)
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${name}`);
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
