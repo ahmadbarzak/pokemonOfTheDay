@@ -25,7 +25,22 @@ timezones.forEach(tz => {
 let pokemonImageUrls = {};
 let lastGenerated = null;
 const PORT = process.env.PORT || 3000;
-const fetchPokemonImageUrl = async (today, timeZone, force) => {
+
+const getTimeZone = (req) => {
+  const ip = req.ip;
+  const geo = geoip.lookup(ip);
+  let timezone = geo && geo.timezone ? geo.timezone : 'UTC';
+  if (!timezones.includes(timezone)) {
+    console.log(`Timezone ${timezone} not supported. Falling back to default.`);
+    timezone = 'UTC';
+  }
+  return timezone;
+}
+
+
+
+const fetchPokemonImageUrl = async (timeZone, force = false) => {
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: timezone })).toDateString();
 
   if (!force && (lastGenerated === today && pokemonImageUrls[timeZone])) {
     return { "imgUrl": pokemonImageUrls[timeZone].imgUrl, "name": pokemonImageUrls[timeZone].name };
@@ -53,7 +68,7 @@ async function createPokemonGif(timezone, force = false) {
     return
   }
 
-  const pokemonData = await fetchPokemonImageUrl(today, timezone, force);
+  const pokemonData = await fetchPokemonImageUrl(timezone, force);
 
   const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
@@ -104,7 +119,8 @@ async function createPokemonGif(timezone, force = false) {
 
 app.get('/', async (req, res) => {
   try {
-    const pokemonData = await fetchPokemonImageUrl();
+    const timezone = getTimeZone(req);
+    const pokemonData = await fetchPokemonImageUrl(timezone);
     res.send(`
       <h1>Random Pokémon</h1>
       <img src="${pokemonData.imgUrl}" alt="${pokemonData.name}" />
@@ -118,7 +134,8 @@ app.get('/', async (req, res) => {
 
 app.get('/name', async (req, res) => {
   try {
-    const pokemonData = await fetchPokemonImageUrl();
+    const timezone = getTimeZone(req);
+    const pokemonData = await fetchPokemonImageUrl(timezone);
     res.json({ schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
@@ -127,14 +144,8 @@ app.get('/name', async (req, res) => {
 
 app.get('/gif', async (req, res) => {
   try {
-  const ip = req.ip;
-  const geo = geoip.lookup(ip);
 
-  let timezone = geo && geo.timezone ? geo.timezone : 'UTC';
-  if (!timezones.includes(timezone)) {
-    console.log(`Timezone ${timezone} not supported. Falling back to default.`);
-    timezone = 'UTC';
-  }
+  const timezone = getTimeZone(req);
   const tzPathParam = timezone.replace('/', '_');
   let gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
   if (!fs.existsSync(gifPath)) {
@@ -149,7 +160,8 @@ app.get('/gif', async (req, res) => {
 
 app.get('/pokemonRedirect', async (req, res) => {
   try {
-    const pokemonData = await fetchPokemonImageUrl();
+    const timezone = getTimeZone(req);
+    const pokemonData = await fetchPokemonImageUrl(timezone);
     res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${pokemonData.name}`);
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
