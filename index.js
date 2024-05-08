@@ -1,66 +1,65 @@
 const express = require('express');
 const axios = require('axios');
 const app = express();
-
 const {GifReader} = require('omggif');
 const { createCanvas, loadImage } = require('canvas');
 const GIFEncoder = require('gifencoder');
 const fs = require('fs');
 const path = require('path');
+const geoip = require('geoip-lite')
+const cron = require('node-cron');
 
-// This will store the Pokémon image URL
+app.enable('trust proxy');
 
-let cachedGifPath = `./public/pokemonGif.gif`;
-let gifLastGenerated = null;
+const timezones = ['UTC', 'Pacific/Auckland', 'Asia/Tokyo', 'America/New_York', 'Europe/London'];
+
+timezones.forEach(tz => {
+    console.log(`Scheduling GIF generation for timezone ${tz}`)
+    cron.schedule('0 0 * * *', () => createPokemonGif(tz, true), {
+        scheduled: true,
+        timezone: tz
+    });
+});
 
 
-let cachedPokemonImageUrl = null;
-let cachedName = null;
-let lastFetchDate = null;
+let pokemonImageUrls = {};
+let lastGenerated = null;
 const PORT = process.env.PORT || 3000;
+const fetchPokemonImageUrl = async (today, timeZone, force) => {
 
-const fetchPokemonImageUrl = async () => {
-  const today = new Date().toDateString();
-
-  if (lastFetchDate === today && cachedPokemonImageUrl) {
-    return { "imgUrl": cachedPokemonImageUrl, "name": cachedName }; // Use the cached URL if it's still valid
+  if (!force && (lastGenerated === today && pokemonImageUrls[timeZone])) {
+    return { "imgUrl": pokemonImageUrls[timeZone].imgUrl, "name": pokemonImageUrls[timeZone].name };
   }
 
-  // Fetch a new random Pokémon image URL
   const randomPokemonId = Math.floor(Math.random() * 898) + 1;
   const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${randomPokemonId}`);
   const imageUrl = response.data.sprites.other['official-artwork'].front_default;
   const name = response.data.name;
 
+  pokemonImageUrls[timeZone] = { "imgUrl": imageUrl, "name": name };
 
-  // Update the cache
-  cachedPokemonImageUrl = imageUrl;
-  cachedName = name;
-
-  lastFetchDate = today;
+  lastGenerated = today;
 
   return { "imgUrl": imageUrl, "name": name };
 };
 
 
+async function createPokemonGif(timezone, force = false) {
+  const tzPathParam = timezone.replace('/', '_');
+  const gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: timezone })).toDateString();
 
-// // Function to create a GIF
-async function createPokemonGif() {
-
-  const today = new Date().toDateString();
-  
-  if (gifLastGenerated === today && fs.existsSync(cachedGifPath)) {
-    return cachedGifPath;
+  if (!force && (lastGenerated === today && fs.existsSync(gifPath))) {
+    return
   }
 
-
-  const pokemonData = await fetchPokemonImageUrl();
+  const pokemonData = await fetchPokemonImageUrl(today, timezone, force);
 
   const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
   const reader = new GifReader(gifData);
 
-  const encoder = new GIFEncoder(reader.width, reader.height); // Set to your desired size
+  const encoder = new GIFEncoder(reader.width, reader.height);
   encoder.start();
   encoder.setRepeat(0);
   encoder.setQuality(10);
@@ -85,24 +84,22 @@ async function createPokemonGif() {
     let pokeballFrame = await loadImage(path.join(__dirname, `./public/pokeballFrame${i+1}.png`));
 
     ctx.globalAlpha = pokeballOpacity;
-    ctx.drawImage(pokeballFrame, 0, 0); // Adjust as necessary
+    ctx.drawImage(pokeballFrame, 0, 0);
 
     ctx.globalAlpha = pokemonOpacity
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, reader.width, reader.height);
 
     ctx.globalAlpha = pokemonOpacity;
-    ctx.drawImage(pokemonImage, 0, 0, 450, 450, 175, 60, 450, 450); // Adjust as necessary
+    ctx.drawImage(pokemonImage, 0, 0, 450, 450, 175, 60, 450, 450);
 
     encoder.addFrame(ctx);
   }
 
   encoder.finish();
   const buffer = encoder.out.getData();
-  fs.writeFileSync('./public/pokemonGif.gif', buffer);
-  gifLastGenerated = today;
-
-  return './public/pokemonGif.gif';
+  fs.writeFileSync(gifPath, buffer);
+  lastGenerated = today;
 }
 
 app.get('/', async (req, res) => {
@@ -122,7 +119,6 @@ app.get('/', async (req, res) => {
 app.get('/name', async (req, res) => {
   try {
     const pokemonData = await fetchPokemonImageUrl();
-    // res.send(`${pokemonData.name}`);
     res.json({ schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
@@ -131,11 +127,23 @@ app.get('/name', async (req, res) => {
 
 app.get('/gif', async (req, res) => {
   try {
-  const gifPath = await createPokemonGif();
+  const ip = req.ip;
+  const geo = geoip.lookup(ip);
+
+  let timezone = geo && geo.timezone ? geo.timezone : 'UTC';
+  if (!timezones.includes(timezone)) {
+    console.log(`Timezone ${timezone} not supported. Falling back to default.`);
+    timezone = 'UTC';
+  }
+  const tzPathParam = timezone.replace('/', '_');
+  let gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
+  if (!fs.existsSync(gifPath)) {
+    await createPokemonGif(timezone);
+  }
   res.sendFile(path.join(__dirname, gifPath));
   } catch (error) {
-    console.log(error)
-  res.status(500).send('Failed to fetch Pokémon');
+    console.log(error);
+    res.status(500).send('Failed to fetch Pokémon');
   }
 });
 
@@ -148,7 +156,6 @@ app.get('/pokemonRedirect', async (req, res) => {
   }
 });
 
-// Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
