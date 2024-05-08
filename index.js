@@ -160,6 +160,10 @@ app.get('/name', async (req, res) => {
     const timezone = getTimeZone(req);
     const name = pokemonImageUrls[timezone].name;
     console.log("GRABBING NAME: " + name)
+
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.json({ schemaVersion: 1, label: "", message: name, color: '4F4F4F' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
