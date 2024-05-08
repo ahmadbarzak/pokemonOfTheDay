@@ -36,7 +36,6 @@ const fetchPokemonImageUrl = async (timeZone, force = false) => {
   console.log(timeZone)
 
   if (!force && pokemonImageUrls[timeZone]) {
-    console.log("EARLY EXIT")
     return { "imgUrl": pokemonImageUrls[timeZone].imgUrl, "name": pokemonImageUrls[timeZone].name };
   }
 
@@ -46,29 +45,21 @@ const fetchPokemonImageUrl = async (timeZone, force = false) => {
   const name = response.data.name;
 
   pokemonImageUrls[timeZone] = { "imgUrl": imageUrl, "name": name };
-
-  console.log("fetched pokemon is " + pokemonImageUrls[timeZone].name)
-
-  console.log("FETCH DONE")
 };
 
 
 async function createPokemonGif(timezone, force = false) {
-  console.log("GIF START")
   const tzPathParam = timezone.replace('/', '_');
   const gifPath = `./public/pokemonGif_${tzPathParam}.gif`;
 
   if (!force && fs.existsSync(gifPath)) {
+    console.log("EARLY EXIT")
     return
   }
 
   const pokemonData = pokemonImageUrls[timezone];
 
   console.log(timezone)
-
-  console.log("pokemon url name is " + pokemonImageUrls[timezone].name)
-  console.log("gif called before")
-  console.log("gif called after")
 
   const pokemonImage = await loadImage(pokemonData.imgUrl);
   const gifData = fs.readFileSync('./pokeballopenGif.gif');
@@ -122,10 +113,12 @@ const initialSetup = async () => {
   await Promise.all(timezones.map(tz =>
     fetchPokemonImageUrl(tz, true)
   ));
+  console.log(pokemonImageUrls['UTC'].name)
   await Promise.all(timezones.map(tz =>
     createPokemonGif(tz, true)
   ));
-  console.log("initialSetup called after")
+  console.log(pokemonImageUrls['UTC'].name)
+  console.log("initialSetup finished")
 }
 
 initialSetup();
@@ -148,11 +141,13 @@ timezones.forEach(tz => {
 app.get('/', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-    const pokemonData = pokemonImageUrls[timezone];
+    const name = pokemonImageUrls[timezone].name;
+    const url = pokemonImageUrls[timezone].imgUrl;
+    console.log("GRABBING NAME: " + name)
     res.send(`
       <h1>Random Pokémon</h1>
-      <img src="${pokemonData.imgUrl}" alt="${pokemonData.name}" />
-      <p>${pokemonData.name}</p>
+      <img src="${url}" alt="${name}" />
+      <p>${name}</p>
       <a href="/gif">View GIF</a>
     `);
   } catch (error) {
@@ -163,14 +158,9 @@ app.get('/', async (req, res) => {
 app.get('/name', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-
-    const pokemonData = pokemonImageUrls[timezone];
-
-    console.log(pokemonData.name)
-    const jsondata = { schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' };
-
-    console.log(jsondata)
-    res.json({ schemaVersion: 1, label: "", message: pokemonData.name, color: '4F4F4F' });
+    const name = pokemonImageUrls[timezone].name;
+    console.log("GRABBING NAME: " + name)
+    res.json({ schemaVersion: 1, label: "", message: name, color: '4F4F4F' });
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
   }
@@ -195,10 +185,9 @@ app.get('/gif', async (req, res) => {
 app.get('/pokemonRedirect', async (req, res) => {
   try {
     const timezone = getTimeZone(req);
-    console.log(timezone)
-    const pokemonData = pokemonImageUrls[timezone];
-    // const pokemonData = await fetchPokemonImageUrl(timezone);
-    res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${pokemonData.name}`);
+    const name = pokemonImageUrls[timezone].name;
+    console.log("GRABBING NAME: " + name)
+    res.redirect(`https://bulbapedia.bulbagarden.net/wiki/${name}`);
   } catch (error) {
     res.status(500).send('Failed to fetch Pokémon');
   }
