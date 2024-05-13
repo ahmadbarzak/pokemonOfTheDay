@@ -84,19 +84,19 @@ async function createPokemonGif(force = false) {
 }
 
 
-const initialSetup = async () => {
-  console.log("initialSetup called before")
+const pokemonSetup = async () => {
+  console.log("pokemonSetup called before")
   await fetchPokemonImageUrl(true);
   await createPokemonGif(true);
-  console.log("initialSetup finished")
+  console.log("pokemonSetup finished")
 }
 
-initialSetup();
+pokemonSetup();
 
 console.log('Scheduling GIF generation for Pacific/Auckland')
 cron.schedule('0 0 * * *', () => {
-  fetchPokemonImageUrl(true)
-  createPokemonGif(true)
+  console.log("Job Scheduled Now")
+  pokemonSetup();
 }, {
     scheduled: true,
     timezone: 'Pacific/Auckland'
